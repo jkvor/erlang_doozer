@@ -15,4 +15,6 @@
                    cas, 
                    path,
                    value,
-                   id}).
+                   id,
+                   err_code = -1,
+                   err_detail}).

@@ -32,7 +32,7 @@
 send(Data) when is_record(Data, request) ->
   send(self(), Data).
 send(RPid, Data)  ->
-  gen_server:cast(?SERVER, {send, RPid, Data}).
+  gen_server:call(?SERVER, {send, RPid, Data}).
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -60,7 +60,8 @@ start_link(PBMod, Host, Port) ->
 %% @end
 %%--------------------------------------------------------------------
 init([PBMod, Host, Port]) ->
-  {ok, Sock} = gen_tcp:connect(Host, Port, [binary, {packet, 0}, {active, once}]),  
+  {ok, Sock} = 
+    gen_tcp:connect(Host, Port, [binary, {packet, 0}]),  
   {ok, #state{pb_mod = PBMod, socket = Sock, outstanding = []}}.
 
 %%--------------------------------------------------------------------
@@ -128,7 +129,7 @@ handle_info({tcp, Sock, Data},
             OList
         end
     end,
-  inet:setopts(Sock, [{active,once}]),
+  %% inet:setopts(Sock, [{active, true}]),
   {noreply, State#state{outstanding = NOList}};
 
 handle_info({'DOWN', MonRef, _, _, _}, #state{outstanding = OList} = State) ->

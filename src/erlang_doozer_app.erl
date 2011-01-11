@@ -18,7 +18,7 @@ start(_StartType, _StartArgs) ->
     list_to_atom(
       filename:rootname(filename:basename(ProtoFile)) ++ "_pb"),
   application:set_env(erlang_doozer, pb_mod, ProtoMod),
-  erlang_doozer_sup:start_link(DHost, DPort, ProtoMod).
+  erlang_doozer_sup:start_link(ProtoMod, DHost, DPort).
 
 stop(_State) ->
     ok.

@@ -4,25 +4,36 @@
 -behaviour(supervisor).
 
 %% API
--export([start_link/0]).
+-export([start_link/3]).
 
 %% Supervisor callbacks
 -export([init/1]).
 
-%% Helper macro for declaring children of supervisor
--define(CHILD(I, Type), {I, {I, start_link, []}, permanent, 5000, Type, [I]}).
 
 %% ===================================================================
 %% API functions
 %% ===================================================================
 
-start_link() ->
-    supervisor:start_link({local, ?MODULE}, ?MODULE, []).
+start_link(PBMod, Host, Port) ->
+    supervisor:start_link({local, ?MODULE}, ?MODULE, [PBMod, Host, Port]).
 
 %% ===================================================================
 %% Supervisor callbacks
 %% ===================================================================
 
-init([]) ->
-    {ok, { {one_for_one, 5, 10}, []} }.
+init([PBMod, Host, Port]) ->
+  RestartStrategy = one_for_one,
+  MaxRestarts = 1000,
+  MaxSecondsBetweenRestarts = 3600,
+
+  SupFlags = {RestartStrategy, MaxRestarts, MaxSecondsBetweenRestarts},
+
+  Restart = permanent,
+  Shutdown = 2000,
+  Type = worker,
+
+  TableManager = 
+    {doozer_conn, {doozer_conn, start_link, [PBMod, Host, Port]},
+     Restart, Shutdown, Type, [doozer_conn]},
+  {ok, {SupFlags, [TableManager]}}.
 

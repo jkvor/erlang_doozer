@@ -91,10 +91,14 @@ loop(Tag, Op, RPid, Fun, init) ->
   loop(Tag, Op, RPid, Fun, MonRef);
 loop(Tag, Op, RPid, Fun, MonRef) -> 
   receive
+    {_, Tag, #response{err_code = EC, err_detail = ED}} when EC > 0 ->
+      erlang:demonitor(MonRef),
+      RPid ! {Op, error, Tag, {EC, ED}};
     {valid, Tag, Resp} -> 
       RPid ! {Op, valid, Tag, Fun(Resp)},
       loop(Tag, Op, RPid, Fun, MonRef);
     {done, Tag, Resp}  -> 
+      erlang:demonitor(MonRef),
       RPid ! {Op, done, Tag, Fun(Resp)};
     {'DOWN', MonRef, _, _, _} ->
       RPid ! {error, retry}
@@ -104,6 +108,9 @@ loop(Tag, Op, RPid, Fun, MonRef) ->
 reply(Tag, Fun) ->
   MonRef = erlang:monitor(process, doozer_conn),
   receive
+    {_, Tag, #response{err_code = EC, err_detail = ED}} when EC > 0 ->
+      erlang:demonitor(MonRef),
+      {error, {EC, ED}};
     {valid, Tag, Resp} ->
       erlang:demonitor(MonRef),
       {ok, Fun(Resp)};
