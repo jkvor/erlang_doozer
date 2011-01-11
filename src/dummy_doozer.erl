@@ -33,7 +33,7 @@ loop(S) ->
   receive
     {tcp,S,Data} ->
       Req = msg_pb:decode_request(Data),
-      io:format("Req : ~p~n", [Req]),
+      io:format("[dummy_dozer] Req : ~p~n", [Req]),
       process(S, Req),
       loop(S);
     {tcp_closed,S} ->
