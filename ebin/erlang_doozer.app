@@ -4,6 +4,8 @@
   {vsn, "1"},
   {registered, []},
   {modules, [
+             doozer,
+             doozer_conn,
              erlang_doozer_app,
              erlang_doozer_sup
             ]},
