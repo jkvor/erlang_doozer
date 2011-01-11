@@ -125,7 +125,8 @@ loop(Op, RPid, Fun) ->
   loop(Op, RPid, Fun, MonRef).
 loop(Op, RPid, Fun, MonRef) -> 
   receive
-    {_, Tag, #response{err_code = EC, err_detail = ED}} when EC > 0 ->
+    {_, Tag, #response{err_code = EC, 
+                       err_detail = ED}} when EC =/= undefined ->
       erlang:demonitor(MonRef),
       RPid ! {Op, error, Tag, {EC, ED}};
     {valid, Tag, Resp} -> 
@@ -148,7 +149,8 @@ reply(Tag, Fun) ->
   reply(Tag, Fun, MonRef, <<>>).
 reply(Tag, Fun, MonRef, RetVal) ->  
   receive
-    {_, Tag, #response{err_code = EC, err_detail = ED}} when EC > 0 ->
+    {_, Tag, #response{err_code = EC, 
+                       err_detail = ED}} when EC =/= undefined ->
       erlang:demonitor(MonRef),
       {error, {EC, ED}};
     {valid, Tag, Resp} ->

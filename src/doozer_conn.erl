@@ -22,7 +22,8 @@
 -record(state, {
                 pb_mod,
                 socket, 
-                tag = 1, 
+                tag = 1,
+                used,
                 outstanding %% outstanding commands
                }).
 
@@ -61,8 +62,9 @@ start_link(PBMod, Host, Port) ->
 %%--------------------------------------------------------------------
 init([PBMod, Host, Port]) ->
   {ok, Sock} = 
-    gen_tcp:connect(Host, Port, [binary, {packet, 0}, {active, once}]),  
-  {ok, #state{pb_mod = PBMod, socket = Sock, outstanding = []}}.
+    gen_tcp:connect(Host, Port, [binary, {packet, 4}, {active, once}]),  
+  {ok, #state{pb_mod = PBMod, socket = Sock, 
+              used = sets:new(), outstanding = []}}.
 
 %%--------------------------------------------------------------------
 %% @private
@@ -81,10 +83,13 @@ init([PBMod, Host, Port]) ->
 handle_call({send, Pid, #request{} = Data}, _From,
             #state{tag = OTag, outstanding = OldOList, 
                    pb_mod = PBMod,
+                   used = Used, 
                    socket = Socket} = State) ->
   ok = gen_tcp:send(Socket, PBMod:encode_request(Data#request{tag = OTag})),
   MRef = erlang:monitor(process, Pid),
-  {reply, {sent, OTag}, State#state{tag = (OTag + 1) rem 65536, 
+  {NTag, NUsed} = get_tag(OTag, Used),
+  {reply, {sent, OTag}, State#state{tag = NTag, 
+                                    used = NUsed,
                                     outstanding = [{OTag, Pid, MRef}|OldOList]}}.
 
 %%--------------------------------------------------------------------
@@ -111,30 +116,43 @@ handle_cast(_Msg, State) ->
 %% @end
 %%--------------------------------------------------------------------
 handle_info({tcp, Sock, Data}, 
-            #state{pb_mod = PBMod, socket = Sock, outstanding = OList} = State) ->
+            #state{pb_mod = PBMod, socket = Sock, 
+                   used = Used,
+                   outstanding = OList} = State) ->
   inet:setopts(Sock, [{active, once}]),
   Resp = PBMod:decode_response(Data),
   #response{tag = Tag, flags = Flag} = Resp,
-  NOList = 
+  {NUsed, NOList} = 
     case lists:keyfind(Tag, 1, OList) of
-      false -> OList;
+      false -> {Used, OList};
       {Tag, RetPid, _MonRef} ->      
         case Flag of
+          3 -> 
+            %% Done | Valid
+            RetPid ! {valid, Tag, Resp},
+            RetPid ! {done, Tag, Resp},
+            {sets:del_element(Tag, Used), lists:keydelete(Tag, 1, OList)};
           2 -> 
             %% Done
             RetPid ! {done, Tag, Resp},
-            lists:keydelete(Tag, 1, OList);
+            {sets:del_element(Tag, Used), lists:keydelete(Tag, 1, OList)};
           1 ->
             %% Valid
             RetPid ! {valid, Tag, Resp},
-            OList
+            {Used, OList}
         end
     end,  
-  {noreply, State#state{outstanding = NOList}};
+  {noreply, State#state{used = NUsed, outstanding = NOList}};
 
-handle_info({'DOWN', MonRef, _, _, _}, #state{outstanding = OList} = State) ->
-  %% TODO : See if CANCEL Applies here...
-  {noreply, State#state{outstanding = lists:keydelete(MonRef, 3, OList)}}.
+handle_info({'DOWN', MonRef, _, _, _}, #state{used = Used, 
+                                              outstanding = OList} = State) ->
+  case lists:keyfind(MonRef, 3, OList) of
+    {Tag, _, MonRef} ->
+      spawn(fun() -> doozer:cancel(Tag) end),
+      {noreply, State#state{used = sets:del_element(Tag, Used),
+                            outstanding = lists:keydelete(MonRef, 3, OList)}};
+    _ -> {noreply, State}
+  end.
 
 
 %%--------------------------------------------------------------------
@@ -165,3 +183,10 @@ code_change(_OldVsn, State, _Extra) ->
 %%%===================================================================
 %%% Internal functions
 %%%===================================================================
+get_tag(OTag, Used) ->
+  T = (OTag + 1) rem 16384, 
+  case sets:is_element(T, Used) of
+    true -> get_tag(T, Used);
+    _ -> {T, sets:add_element(T, Used)}
+  end.
+      

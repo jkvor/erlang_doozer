@@ -16,5 +16,5 @@
                    path,
                    value,
                    id,
-                   err_code = -1,
+                   err_code,
                    err_detail}).
