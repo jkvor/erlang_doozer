@@ -61,7 +61,7 @@ start_link(PBMod, Host, Port) ->
 %%--------------------------------------------------------------------
 init([PBMod, Host, Port]) ->
   {ok, Sock} = 
-    gen_tcp:connect(Host, Port, [binary, {packet, 0}]),  
+    gen_tcp:connect(Host, Port, [binary, {packet, 0}, {active, once}]),  
   {ok, #state{pb_mod = PBMod, socket = Sock, outstanding = []}}.
 
 %%--------------------------------------------------------------------
@@ -112,6 +112,7 @@ handle_cast(_Msg, State) ->
 %%--------------------------------------------------------------------
 handle_info({tcp, Sock, Data}, 
             #state{pb_mod = PBMod, socket = Sock, outstanding = OList} = State) ->
+  inet:setopts(Sock, [{active, once}]),
   Resp = PBMod:decode_response(Data),
   #response{tag = Tag, flags = Flag} = Resp,
   NOList = 
@@ -128,8 +129,7 @@ handle_info({tcp, Sock, Data},
             RetPid ! {valid, Tag, Resp},
             OList
         end
-    end,
-  %% inet:setopts(Sock, [{active, true}]),
+    end,  
   {noreply, State#state{outstanding = NOList}};
 
 handle_info({'DOWN', MonRef, _, _, _}, #state{outstanding = OList} = State) ->
