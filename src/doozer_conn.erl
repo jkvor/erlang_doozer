@@ -133,6 +133,7 @@ handle_info({tcp, Sock, Data},
   {noreply, State#state{outstanding = NOList}};
 
 handle_info({'DOWN', MonRef, _, _, _}, #state{outstanding = OList} = State) ->
+  %% TODO : See if CANCEL Applies here...
   {noreply, State#state{outstanding = lists:keydelete(MonRef, 3, OList)}}.
 
 

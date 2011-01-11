@@ -34,68 +34,77 @@
 %%%===================================================================
 checkin(Cas, Id) when is_list(Cas), is_integer(Id) ->
   {sent, Tag} = doozer_conn:send(#request{verb = 0, cas = Cas, id = Id}),
-  reply(Tag, fun(Resp) -> Resp#response.cas end, init).
+  reply(Tag, fun(Resp) -> [{cas, Resp#response.cas}] end).
 
 get(Path, Id) when is_list(Path), is_integer(Id) ->
   {sent, Tag} = doozer_conn:send(#request{verb = 1, path = Path, id = Id}),
-  reply(Tag, fun(Resp) -> {Resp#response.cas, Resp#response.value} end, init).
+  reply(Tag, 
+        fun(Resp) -> [{cas, Resp#response.cas}, {value, Resp#response.value}] end).
 
 set(Cas, Path, Value) when is_list(Cas), is_list(Path), is_binary(Value) ->
   {sent, Tag} = 
     doozer_conn:send(#request{verb = 2, cas = Cas, path = Path, value = Value}),
-  reply(Tag, fun(Resp) -> Resp#response.cas end, init).
+  reply(Tag, fun(Resp) -> [{cas, Resp#response.cas}] end).
 
 del(Cas, Path) when is_list(Cas), is_list(Path) ->
   {sent, Tag} = doozer_conn:send(#request{verb = 3, cas = Cas, path = Path}),
-  reply(Tag, fun(_Resp) -> void end, init).
+  reply(Tag, fun(_Resp) -> [] end).
 
 eset(Cas, Path) when is_list(Cas), is_list(Path) ->
   {sent, Tag} = doozer_conn:send(#request{verb = 4, cas = Cas, path = Path}),
-  reply(Tag, fun(_Resp) -> void end, init).
+  reply(Tag, fun(_Resp) -> [] end).
   
 snap() ->
   {sent, Tag} = doozer_conn:send(#request{verb = 5}),
-  reply(Tag, fun(Resp) -> {Resp#response.seqn, Resp#response.id} end, init).
+  reply(Tag, fun(Resp) -> [{seqn, Resp#response.seqn}, {id, Resp#response.id}] end).
 
 delsnap(Id) when is_integer(Id) ->
   {sent, Tag} = doozer_conn:send(#request{verb = 6, id = Id}),
-  reply(Tag, fun(_Resp) -> void end, init).
+  reply(Tag, fun(_Resp) -> [] end).
 
 noop() ->
   {sent, Tag} = doozer_conn:send(#request{verb = 7}),
-  reply(Tag, fun(_Resp) -> void end, init).
+  reply(Tag, fun(_Resp) -> [] end).
 
 cancel(Id) when is_integer(Id) ->
   {sent, Tag} = doozer_conn:send(#request{verb = 10, id = Id}),
-  reply(Tag, fun(_Resp) -> void end, init).
+  reply(Tag, fun(_Resp) -> [] end).
 
 syncpath(Path) when is_list(Path) ->
   {sent, Tag} = doozer_conn:send(#request{verb = 12, path = Path}),
-  reply(Tag, fun(Resp) -> {Resp#response.cas, Resp#response.value} end, init).
+  reply(Tag, 
+        fun(Resp) -> [{cas, Resp#response.cas}, {value, Resp#response.value}] end).
 
 
 watch(Pid, Path) when is_list(Path) ->
   async_fun(Pid, watch, #request{verb = 8, path = Path}, 
             fun(Resp) -> 
-                {Resp#response.cas, Resp#response.path, Resp#response.value}
+                [{cas, Resp#response.cas}, 
+                 {path, Resp#response.path}, 
+                 {value, Resp#response.value}]
             end).    
 
 walk(Pid, Path) when is_list(Path) ->
   async_fun(Pid, walk, #request{verb = 9, path = Path},
             fun(Resp) -> 
-                {Resp#response.cas, Resp#response.path, Resp#response.value}
+                [{cas, Resp#response.cas}, 
+                 {path, Resp#response.path}, 
+                 {value, Resp#response.value}]
             end).    
 
 monitor(Pid, Path) when is_list(Path) ->
   async_fun(Pid, monitor, #request{verb = 11, path = Path},
             fun(Resp) -> 
-                {Resp#response.cas, Resp#response.path, Resp#response.value}
+                [{cas, Resp#response.cas}, 
+                 {path, Resp#response.path}, 
+                 {value, Resp#response.value}]
             end).    
   
 getdir(Pid, Path) when is_list(Path) ->
   async_fun(Pid, getdir, #request{verb = 14, path = Path},
             fun(Resp) -> 
-                {Resp#response.cas, Resp#response.value}
+                [{cas, Resp#response.cas}, 
+                 {value, Resp#response.value}]
             end).    
 
 %%--------------------------------------------------------------------
@@ -108,12 +117,12 @@ getdir(Pid, Path) when is_list(Path) ->
 %%% Internal functions
 %%%===================================================================
 async_fun(Pid, Op, Req, Fun) ->
-  RPid = spawn(fun() -> loop(Op, Pid, Fun, init) end),
+  RPid = spawn(fun() -> loop(Op, Pid, Fun) end),
   {sent, _Tag} = doozer_conn:send(RPid, Req).
             
-loop(Op, RPid, Fun, init) -> 
+loop(Op, RPid, Fun) -> 
   MonRef = erlang:monitor(process, doozer_conn),
-  loop(Op, RPid, Fun, MonRef);
+  loop(Op, RPid, Fun, MonRef).
 loop(Op, RPid, Fun, MonRef) -> 
   receive
     {_, Tag, #response{err_code = EC, err_detail = ED}} when EC > 0 ->
@@ -122,9 +131,11 @@ loop(Op, RPid, Fun, MonRef) ->
     {valid, Tag, Resp} -> 
       RPid ! {Op, valid, Tag, Fun(Resp)},
       loop(Op, RPid, Fun, MonRef);
-    {done, Tag, Resp}  -> 
+    {done, Tag, _Resp}  -> 
       erlang:demonitor(MonRef),
-      RPid ! {Op, done, Tag, Fun(Resp)};
+      %% TODO : check if the messages with the "done" flag
+      %%        has usefull data..
+      RPid ! {Op, done, Tag};
     {'DOWN', MonRef, _, _, _} ->
       RPid ! {error, retry};
     X ->
@@ -132,7 +143,7 @@ loop(Op, RPid, Fun, MonRef) ->
       RPid ! {error, X}
   end.
   
-reply(Tag, Fun, init) ->
+reply(Tag, Fun) ->
   MonRef = erlang:monitor(process, doozer_conn),
   reply(Tag, Fun, MonRef, <<>>).
 reply(Tag, Fun, MonRef, RetVal) ->  
