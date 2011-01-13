@@ -121,7 +121,7 @@ handle_info({tcp, Sock, Data},
                    outstanding = OList} = State) ->
   inet:setopts(Sock, [{active, once}]),
   Resp = PBMod:decode_response(Data),
-  #response{tag = Tag, flags = Flag} = Resp,
+  #response{tag = Tag, flags = Flag, err_code = EC} = Resp,
   {NUsed, NOList} = 
     case lists:keyfind(Tag, 1, OList) of
       false -> {Used, OList};
@@ -129,8 +129,13 @@ handle_info({tcp, Sock, Data},
         case Flag of
           3 -> 
             %% Done | Valid
-            RetPid ! {valid, Tag, Resp},
-            RetPid ! {done, Tag, Resp},
+            case EC of
+              undefined ->               
+                RetPid ! {valid, Tag, Resp},
+                RetPid ! {done, Tag, Resp};
+              _ ->
+                RetPid ! {done, Tag, Resp}
+            end,
             {sets:del_element(Tag, Used), lists:keydelete(Tag, 1, OList)};
           2 -> 
             %% Done
